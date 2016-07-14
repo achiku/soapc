@@ -1,0 +1,2 @@
+# soapc
+Golang SOAP client
