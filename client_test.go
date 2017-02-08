@@ -139,7 +139,7 @@ func TestClientNoSOAPHeader(t *testing.T) {
 
 	isTLS := false
 	url := ts.URL + "/noheader"
-	client := NewClient(url, isTLS, nil)
+	client := NewClient(url, isTLS, "Test", nil)
 	req := testRequest{Message: "test"}
 	resp := person{}
 	if err := client.Call(url, req, &resp, nil); err != nil {
@@ -161,7 +161,7 @@ func TestClientWithSOAPHeader(t *testing.T) {
 		UserID:   "myname",
 		Password: "pass",
 	}
-	client := NewClient(url, isTLS, header)
+	client := NewClient(url, isTLS, "Test", header)
 	req := testRequest{Message: "test"}
 	resp := person{}
 	respHeader := myResponseHeader{}
@@ -184,7 +184,7 @@ func TestClientSOAPFault(t *testing.T) {
 
 	isTLS := false
 	url := ts.URL + "/error"
-	client := NewClient(url, isTLS, nil)
+	client := NewClient(url, isTLS, "Test", nil)
 	req := testRequest{Message: "test"}
 	resp := person{}
 	err := client.Call(url, req, &resp, nil)
