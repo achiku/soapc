@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -47,11 +48,12 @@ func (f *Fault) Error() string {
 }
 
 // NewClient return SOAP client
-func NewClient(url string, tls bool, header interface{}) *Client {
+func NewClient(url string, tls bool, userAgent string, header interface{}) *Client {
 	return &Client{
-		url:    url,
-		tls:    tls,
-		header: header,
+		url:       url,
+		tls:       tls,
+		userAgent: userAgent,
+		header:    header,
 	}
 }
 
@@ -139,42 +141,21 @@ Loop:
 	return nil
 }
 
-// Call SOAP client API call
-func (s *Client) Call(soapAction string, request, response, header interface{}) error {
-	var envelope Envelope
-	if s.header != nil {
-		envelope = Envelope{
-			Header: &Header{
-				Content: s.header,
-			},
-			Body: Body{
-				Content: request,
-			},
-		}
-	} else {
-		envelope = Envelope{
-			Body: Body{
-				Content: request,
-			},
-		}
-	}
-	buffer := new(bytes.Buffer)
-	encoder := xml.NewEncoder(buffer)
-	encoder.Indent("  ", "    ")
-	if err := encoder.Encode(envelope); err != nil {
-		return errors.Wrap(err, "failed to encode envelope")
-	}
-	if err := encoder.Flush(); err != nil {
-		return errors.Wrap(err, "failed to flush encoder")
-	}
+func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, response interface{}) error {
 
-	req, err := http.NewRequest("POST", s.url, buffer)
+	req, err := http.NewRequest("POST", s.url, message)
 	if err != nil {
 		return errors.Wrap(err, "failed to create POST request")
 	}
-	req.Header.Add("Content-Type", "text/xml; charset=\"utf-8\"")
-	req.Header.Set("SOAPAction", soapAction)
-	req.Header.Set("User-Agent", s.userAgent)
+
+	if soapAction != "" {
+		req.Header.Set("SOAPAction", soapAction)
+		contentType += ";action=" + soapAction
+	}
+	if s.userAgent != "" {
+		req.Header.Set("User-Agent", s.userAgent)
+	}
+	req.Header.Add("Content-Type", contentType)
 	req.Close = true
 
 	tr := &http.Transport{
@@ -206,14 +187,49 @@ func (s *Client) Call(soapAction string, request, response, header interface{}) 
 	if len(rawbody) == 0 {
 		return nil
 	}
-	respEnvelope := Envelope{}
-	respEnvelope.Body = Body{Content: response}
-	if header != nil {
-		respEnvelope.Header = &Header{Content: header}
-	}
-
-	if err = xml.Unmarshal(rawbody, &respEnvelope); err != nil {
+	if err = xml.Unmarshal(rawbody, response); err != nil {
 		return errors.Wrap(err, "failed to unmarshal response SOAP Envelope")
 	}
 	return nil
+}
+
+func (s *Client) Send(soapAction string, message, response, responseHeader interface{}) error {
+
+	buffer := new(bytes.Buffer)
+	encoder := xml.NewEncoder(buffer)
+	encoder.Indent("  ", "    ")
+	if err := encoder.Encode(message); err != nil {
+		return errors.Wrap(err, "failed to encode envelope")
+	}
+	if err := encoder.Flush(); err != nil {
+		return errors.Wrap(err, "failed to flush encoder")
+	}
+
+	respEnvelope := Envelope{}
+	respEnvelope.Body = Body{Content: response}
+	if responseHeader != nil {
+		respEnvelope.Header = &Header{Content: responseHeader}
+	}
+	return s.SendRaw(soapAction, "text/xml; charset=\"utf-8\"", buffer, &respEnvelope)
+}
+
+func (s *Client) Call(soapAction string, request, response, responseHeader interface{}) error {
+	var envelope Envelope
+	if s.header != nil {
+		envelope = Envelope{
+			Header: &Header{
+				Content: s.header,
+			},
+			Body: Body{
+				Content: request,
+			},
+		}
+	} else {
+		envelope = Envelope{
+			Body: Body{
+				Content: request,
+			},
+		}
+	}
+	return s.Send(soapAction, envelope, response, responseHeader)
 }
