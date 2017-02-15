@@ -48,26 +48,34 @@ func (f *Fault) Error() string {
 }
 
 // NewClient return SOAP client
-func NewClient(url string, tls bool, userAgent string, header interface{}) *Client {
+func NewClient(url string, useTls bool, timeoutInSec time.Duration, userAgent string, header interface{}) *Client {
+
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: useTls,
+		},
+		Dial: func(network, addr string) (net.Conn, error) {
+			timeout := time.Duration(timeoutInSec * time.Second)
+			return net.DialTimeout(network, addr, timeout)
+		},
+	}
+
 	return &Client{
-		url:       url,
-		tls:       tls,
-		userAgent: userAgent,
-		header:    header,
+		httpClient:   http.Client{Transport: tr},
+		url:          url,
+		timeoutInSec: timeoutInSec,
+		userAgent:    userAgent,
+		header:       header,
 	}
 }
 
 // Client SOAP client
 type Client struct {
-	url       string
-	tls       bool
-	userAgent string
-	header    interface{}
-}
-
-func dialTimeout(network, addr string) (net.Conn, error) {
-	timeout := time.Duration(30 * time.Second)
-	return net.DialTimeout(network, addr, timeout)
+	httpClient   http.Client
+	url          string
+	timeoutInSec time.Duration
+	userAgent    string
+	header       interface{}
 }
 
 // UnmarshalXML unmarshal SOAPHeader
@@ -158,19 +166,13 @@ func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, resp
 	req.Header.Add("Content-Type", contentType)
 	req.Close = true
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: s.tls,
-		},
-		Dial: dialTimeout,
-	}
-
-	client := &http.Client{Transport: tr}
-	res, err := client.Do(req)
+	res, err := s.httpClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to send SOAP request")
 	}
+
 	defer res.Body.Close()
+
 	if res.StatusCode != http.StatusOK {
 		soapFault, err := ioutil.ReadAll(res.Body)
 		if err != nil {
