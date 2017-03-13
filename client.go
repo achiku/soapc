@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
@@ -151,6 +152,15 @@ Loop:
 
 func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, response interface{}) error {
 
+	if log.GetLevel() == log.DebugLevel {
+		messageBuffer, err := ioutil.ReadAll(message)
+		if err != nil {
+			return errors.Wrap(err, "failed to read message")
+		}
+		log.Debugln(string(messageBuffer))
+		message = bytes.NewBuffer(messageBuffer)
+	}
+
 	req, err := http.NewRequest("POST", s.url, message)
 	if err != nil {
 		return errors.Wrap(err, "failed to create POST request")
@@ -189,6 +199,11 @@ func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, resp
 	if len(rawbody) == 0 {
 		return nil
 	}
+
+	if log.GetLevel() == log.DebugLevel {
+		log.Debugln(string(rawbody))
+	}
+
 	if err = xml.Unmarshal(rawbody, response); err != nil {
 		return errors.Wrap(err, "failed to unmarshal response SOAP Envelope")
 	}
