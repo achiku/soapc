@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"time"
 
-	log "github.com/Sirupsen/logrus"
 	"github.com/pkg/errors"
 )
 
@@ -77,6 +77,7 @@ type Client struct {
 	timeoutInSec time.Duration
 	userAgent    string
 	header       interface{}
+	debug        bool
 }
 
 // UnmarshalXML unmarshal SOAPHeader
@@ -150,14 +151,24 @@ Loop:
 	return nil
 }
 
+func (s *Client) enableDebugLog() {
+
+	s.debug = true
+}
+
+func (s *Client) disableDebugLog() {
+
+	s.debug = false
+}
+
 func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, response interface{}) error {
 
-	if log.GetLevel() == log.DebugLevel {
+	if s.debug {
 		messageBuffer, err := ioutil.ReadAll(message)
 		if err != nil {
 			return errors.Wrap(err, "failed to read message")
 		}
-		log.Debugln(string(messageBuffer))
+		log.Println(string(messageBuffer))
 		message = bytes.NewBuffer(messageBuffer)
 	}
 
@@ -200,8 +211,8 @@ func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, resp
 		return nil
 	}
 
-	if log.GetLevel() == log.DebugLevel {
-		log.Debugln(string(rawbody))
+	if s.debug {
+		log.Println(string(rawbody))
 	}
 
 	if err = xml.Unmarshal(rawbody, response); err != nil {
