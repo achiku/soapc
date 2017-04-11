@@ -17,27 +17,28 @@ import (
 
 // Envelope envelope
 type Envelope struct {
-	XMLName xml.Name `xml:"http://schemas.xmlsoap.org/soap/envelope/ Envelope"`
-	Header  *Header  `xml:",omitempty"`
-	Body    Body
+	XMLName   xml.Name `xml:"Envelope"`
+	XmlnsSoap string   `xml:"xmlns:soap,attr"`
+	Header    *Header  `xml:",omitempty"`
+	Body      Body
 }
 
 // Header header
 type Header struct {
-	XMLName xml.Name    `xml:"http://schemas.xmlsoap.org/soap/envelope/ Header"`
+	XMLName xml.Name    `xml:"soap:Header"`
 	Content interface{} `xml:",omitempty"`
 }
 
 // Body body
 type Body struct {
-	XMLName xml.Name    `xml:"http://schemas.xmlsoap.org/soap/envelope/ Body"`
+	XMLName xml.Name    `xml:"soap:Body"`
 	Fault   *Fault      `xml:",omitempty"`
 	Content interface{} `xml:",omitempty"`
 }
 
 // Fault fault
 type Fault struct {
-	XMLName xml.Name `xml:"http://schemas.xmlsoap.org/soap/envelope/ Fault"`
+	XMLName xml.Name `xml:"soap:Fault"`
 	Code    string   `xml:"faultcode,omitempty"`
 	String  string   `xml:"faultstring,omitempty"`
 	Actor   string   `xml:"faultactor,omitempty"`
@@ -245,6 +246,7 @@ func (s *Client) Call(soapAction string, request, response, responseHeader inter
 	var envelope Envelope
 	if s.header != nil {
 		envelope = Envelope{
+			XmlnsSoap: "http://www.w3.org/2003/05/soap-envelope",
 			Header: &Header{
 				Content: s.header,
 			},
