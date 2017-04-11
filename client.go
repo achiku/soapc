@@ -151,12 +151,12 @@ Loop:
 	return nil
 }
 
-func (s *Client) enableDebugLog() {
+func (s *Client) EnableDebugLog() {
 
 	s.debug = true
 }
 
-func (s *Client) disableDebugLog() {
+func (s *Client) DisableDebugLog() {
 
 	s.debug = false
 }
