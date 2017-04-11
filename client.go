@@ -206,36 +206,37 @@ func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, resp
 		return errors.New(msg)
 	}
 
-	rawbody, err := ioutil.ReadAll(res.Body)
+	raw, err := ioutil.ReadAll(res.Body)
 	if err != nil {
 		return errors.Wrap(err, "failed to read SOAP body")
 	}
-	if len(rawbody) == 0 {
+	body := strings.TrimLeft(string(raw), " \r\n\t")
+	if len(body) == 0 {
 		return nil
 	}
 
 	if s.debug {
-		log.Println(string(rawbody))
+		log.Println(body)
 	}
 
-	if strings.HasPrefix(string(rawbody), "--") {
+	if strings.HasPrefix(body, "--") {
 
-		body := strings.Split(string(rawbody), "\r\n")
-		if len(body) == 0 {
+		lines := strings.Split(body, "\r\n")
+		if len(lines) == 0 {
 			return errors.New("unknown response body format")
 		}
-		multipartReader := multipart.NewReader(bytes.NewReader(rawbody), body[0])
+		multipartReader := multipart.NewReader(bytes.NewReader(raw), strings.TrimLeft(lines[0], "-"))
 		part, err := multipartReader.NextPart()
 		if err != nil {
 			return errors.Wrap(err, "error parsing multipart response body")
 		}
-		_, err = part.Read(rawbody)
+		raw, err = ioutil.ReadAll(part)
 		if err != nil {
 			return errors.Wrap(err, "error reading multipart response body")
 		}
 	}
 
-	if err = xml.Unmarshal(rawbody, response); err != nil {
+	if err = xml.Unmarshal(raw, response); err != nil {
 		return errors.Wrap(err, "failed to unmarshal response SOAP Envelope")
 	}
 	return nil
