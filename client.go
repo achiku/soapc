@@ -17,7 +17,7 @@ import (
 
 // Envelope envelope
 type Envelope struct {
-	XMLName   xml.Name `xml:"Envelope"`
+	XMLName   xml.Name `xml:"soap:Envelope"`
 	XmlnsSoap string   `xml:"xmlns:soap,attr"`
 	Header    *Header  `xml:",omitempty"`
 	Body      Body
@@ -243,6 +243,7 @@ func (s *Client) Send(soapAction string, message, response, responseHeader inter
 }
 
 func (s *Client) Call(soapAction string, request, response, responseHeader interface{}) error {
+
 	var envelope Envelope
 	if s.header != nil {
 		envelope = Envelope{
