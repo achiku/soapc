@@ -8,8 +8,10 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
+	"mime/multipart"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -214,6 +216,23 @@ func (s *Client) SendRaw(soapAction, contentType string, message io.Reader, resp
 
 	if s.debug {
 		log.Println(string(rawbody))
+	}
+
+	if strings.HasPrefix(string(rawbody), "--") {
+
+		body := strings.Split(string(rawbody), "\r\n")
+		if len(body) == 0 {
+			return errors.New("unknown response body format")
+		}
+		multipartReader := multipart.NewReader(bytes.NewReader(rawbody), body[0])
+		part, err := multipartReader.NextPart()
+		if err != nil {
+			return errors.Wrap(err, "error parsing multipart response body")
+		}
+		_, err = part.Read(rawbody)
+		if err != nil {
+			return errors.Wrap(err, "error reading multipart response body")
+		}
 	}
 
 	if err = xml.Unmarshal(rawbody, response); err != nil {
