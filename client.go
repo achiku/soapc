@@ -17,34 +17,48 @@ import (
 	"github.com/pkg/errors"
 )
 
-// Envelope envelope
-type Envelope struct {
-	XMLName   xml.Name `xml:"soap:Envelope"`
-	XmlnsSoap string   `xml:"xmlns:soap,attr"`
-	Header    *Header  `xml:",omitempty"`
-	Body      Body
+type RequestEnvelope struct {
+	XMLName   xml.Name       `xml:"soap:Envelope"`
+	XmlnsSoap string         `xml:"xmlns:soap,attr"`
+	Header    *RequestHeader `xml:",omitempty"`
+	Body      RequestBody
 }
 
-// Header header
-type Header struct {
+type RequestHeader struct {
 	XMLName xml.Name    `xml:"soap:Header"`
 	Content interface{} `xml:",omitempty"`
 }
 
-// Body body
-type Body struct {
+type RequestBody struct {
 	XMLName xml.Name    `xml:"soap:Body"`
 	Fault   *Fault      `xml:",omitempty"`
 	Content interface{} `xml:",omitempty"`
 }
 
-// Fault fault
+type ResponseEnvelope struct {
+	XMLName xml.Name
+	Header  *ResponseHeader `xml:",omitempty"`
+	Body    ResponseBody
+}
+
+type ResponseHeader struct {
+	XMLName xml.Name
+	Content interface{} `xml:",omitempty"`
+}
+
+type ResponseBody struct {
+	XMLName xml.Name
+	Fault   *Fault      `xml:",omitempty"`
+	Content interface{} `xml:",omitempty"`
+}
+
+// Response fault
 type Fault struct {
-	XMLName xml.Name `xml:"soap:Fault"`
-	Code    string   `xml:"faultcode,omitempty"`
-	String  string   `xml:"faultstring,omitempty"`
-	Actor   string   `xml:"faultactor,omitempty"`
-	Detail  string   `xml:"detail,omitempty"`
+	XMLName xml.Name
+	Code    string `xml:"faultcode,omitempty"`
+	String  string `xml:"faultstring,omitempty"`
+	Actor   string `xml:"faultactor,omitempty"`
+	Detail  string `xml:"detail,omitempty"`
 }
 
 func (f *Fault) Error() string {
@@ -84,7 +98,8 @@ type Client struct {
 }
 
 // UnmarshalXML unmarshal SOAPHeader
-func (h *Header) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+func (h *ResponseHeader) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	h.XMLName = start.Name
 	var (
 		token xml.Token
 		err   error
@@ -110,10 +125,11 @@ Loop:
 }
 
 // UnmarshalXML unmarshal SOAPBody
-func (b *Body) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+func (b *ResponseBody) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	if b.Content == nil {
 		return xml.UnmarshalError("Content must be a pointer to a struct")
 	}
+	b.XMLName = start.Name
 	var (
 		token    xml.Token
 		err      error
@@ -127,13 +143,12 @@ Loop:
 		if token == nil {
 			break
 		}
-		envelopeNameSpace := "http://schemas.xmlsoap.org/soap/envelope/"
 		switch se := token.(type) {
 		case xml.StartElement:
 			if consumed {
 				return xml.UnmarshalError(
 					"Found multiple elements inside SOAP body; not wrapped-document/literal WS-I compliant")
-			} else if se.Name.Space == envelopeNameSpace && se.Name.Local == "Fault" {
+			} else if se.Name.Local == "Fault" {
 				b.Fault = &Fault{}
 				b.Content = nil
 				err = d.DecodeElement(b.Fault, &se)
@@ -254,30 +269,30 @@ func (s *Client) Send(soapAction string, message, response, responseHeader inter
 		return errors.Wrap(err, "failed to flush encoder")
 	}
 
-	respEnvelope := Envelope{}
-	respEnvelope.Body = Body{Content: response}
+	respEnvelope := ResponseEnvelope{}
+	respEnvelope.Body = ResponseBody{Content: response}
 	if responseHeader != nil {
-		respEnvelope.Header = &Header{Content: responseHeader}
+		respEnvelope.Header = &ResponseHeader{Content: responseHeader}
 	}
 	return s.SendRaw(soapAction, "text/xml; charset=\"utf-8\"", buffer, &respEnvelope)
 }
 
 func (s *Client) Call(soapAction string, request, response, responseHeader interface{}) error {
 
-	var envelope Envelope
+	var envelope RequestEnvelope
 	if s.header != nil {
-		envelope = Envelope{
+		envelope = RequestEnvelope{
 			XmlnsSoap: "http://www.w3.org/2003/05/soap-envelope",
-			Header: &Header{
+			Header: &RequestHeader{
 				Content: s.header,
 			},
-			Body: Body{
+			Body: RequestBody{
 				Content: request,
 			},
 		}
 	} else {
-		envelope = Envelope{
-			Body: Body{
+		envelope = RequestEnvelope{
+			Body: RequestBody{
 				Content: request,
 			},
 		}
