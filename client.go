@@ -4,12 +4,11 @@ import (
 	"bytes"
 	"crypto/tls"
 	"encoding/xml"
-	"fmt"
-	"io/ioutil"
-	"net"
+	"io"
 	"net/http"
-	"time"
+	"sync"
 
+	"github.com/kylewolfe/soaptrip"
 	"github.com/pkg/errors"
 )
 
@@ -47,26 +46,24 @@ func (f *Fault) Error() string {
 }
 
 // NewClient return SOAP client
-func NewClient(url string, tls bool, header interface{}) *Client {
+func NewClient(url string, tlsSkipVerify bool, header interface{}) *Client {
+	tr := http.DefaultTransport.(*http.Transport)
+	if tlsSkipVerify {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: tlsSkipVerify}
+	}
 	return &Client{
-		url:    url,
-		tls:    tls,
-		header: header,
+		url:        url,
+		header:     header,
+		HTTPClient: &http.Client{Transport: soaptrip.New(tr)},
 	}
 }
 
 // Client SOAP client
 type Client struct {
 	url        string
-	tls        bool
 	userAgent  string
 	header     interface{}
 	HTTPClient *http.Client
-}
-
-func dialTimeout(network, addr string) (net.Conn, error) {
-	timeout := time.Duration(30 * time.Second)
-	return net.DialTimeout(network, addr, timeout)
 }
 
 // UnmarshalXML unmarshal SOAPHeader
@@ -140,27 +137,25 @@ Loop:
 	return nil
 }
 
+var bufPool = sync.Pool{New: func() interface{} { return bytes.NewBuffer(make([]byte, 0, 1024)) }}
+
 // Call SOAP client API call
 func (s *Client) Call(soapAction string, request, response, header interface{}) error {
 	var envelope Envelope
 	if s.header != nil {
 		envelope = Envelope{
-			Header: &Header{
-				Content: s.header,
-			},
-			Body: Body{
-				Content: request,
-			},
+			Header: &Header{Content: s.header},
+			Body:   Body{Content: request},
 		}
 	} else {
 		envelope = Envelope{
-			Body: Body{
-				Content: request,
-			},
+			Body: Body{Content: request},
 		}
 	}
-	buffer := new(bytes.Buffer)
-	encoder := xml.NewEncoder(buffer)
+	buf := bufPool.Get().(*bytes.Buffer)
+	defer bufPool.Put(buf)
+	buf.Reset()
+	encoder := xml.NewEncoder(buf)
 	encoder.Indent("  ", "    ")
 	if err := encoder.Encode(envelope); err != nil {
 		return errors.Wrap(err, "failed to encode envelope")
@@ -169,45 +164,30 @@ func (s *Client) Call(soapAction string, request, response, header interface{}) 
 		return errors.Wrap(err, "failed to flush encoder")
 	}
 
-	req, err := http.NewRequest("POST", s.url, buffer)
+	req, err := http.NewRequest("POST", s.url, bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		return errors.Wrap(err, "failed to create POST request")
 	}
 	req.Header.Add("Content-Type", "text/xml; charset=\"utf-8\"")
 	req.Header.Set("SOAPAction", soapAction)
-	req.Header.Set("User-Agent", s.userAgent)
-	req.Close = true
-
-	client := s.HTTPClient
-	if client == nil {
-		client = &http.Client{Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: s.tls,
-			},
-			Dial: dialTimeout,
-		}}
-		s.HTTPClient = client
+	if s.userAgent != "" {
+		req.Header.Set("User-Agent", s.userAgent)
 	}
 
-	res, err := client.Do(req)
+	res, err := s.HTTPClient.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to send SOAP request")
 	}
 	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		soapFault, err := ioutil.ReadAll(res.Body)
-		if err != nil {
-			return errors.Wrap(err, "failed to read SOAP fault response body")
-		}
-		msg := fmt.Sprintf("HTTP Status Code: %d, SOAP Fault: \n%s", res.StatusCode, string(soapFault))
-		return errors.New(msg)
-	}
-
-	rawbody, err := ioutil.ReadAll(res.Body)
-	if err != nil {
+	buf.Reset()
+	if _, err := io.Copy(buf, res.Body); err != nil {
 		return errors.Wrap(err, "failed to read SOAP body")
 	}
-	if len(rawbody) == 0 {
+	if res.StatusCode != http.StatusOK {
+		return errors.Errorf("HTTP Status Code: %d, SOAP Fault: \n%s", res.StatusCode, buf.String())
+	}
+
+	if buf.Len() == 0 {
 		return nil
 	}
 	respEnvelope := Envelope{}
@@ -216,7 +196,7 @@ func (s *Client) Call(soapAction string, request, response, header interface{}) 
 		respEnvelope.Header = &Header{Content: header}
 	}
 
-	if err = xml.Unmarshal(rawbody, &respEnvelope); err != nil {
+	if err = xml.Unmarshal(buf.Bytes(), &respEnvelope); err != nil {
 		return errors.Wrap(err, "failed to unmarshal response SOAP Envelope")
 	}
 	return nil
