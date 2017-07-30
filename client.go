@@ -57,10 +57,11 @@ func NewClient(url string, tls bool, header interface{}) *Client {
 
 // Client SOAP client
 type Client struct {
-	url       string
-	tls       bool
-	userAgent string
-	header    interface{}
+	url        string
+	tls        bool
+	userAgent  string
+	header     interface{}
+	HTTPClient *http.Client
 }
 
 func dialTimeout(network, addr string) (net.Conn, error) {
@@ -177,14 +178,17 @@ func (s *Client) Call(soapAction string, request, response, header interface{}) 
 	req.Header.Set("User-Agent", s.userAgent)
 	req.Close = true
 
-	tr := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: s.tls,
-		},
-		Dial: dialTimeout,
+	client := s.HTTPClient
+	if client == nil {
+		client = &http.Client{Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: s.tls,
+			},
+			Dial: dialTimeout,
+		}}
+		s.HTTPClient = client
 	}
 
-	client := &http.Client{Transport: tr}
 	res, err := client.Do(req)
 	if err != nil {
 		return errors.Wrap(err, "failed to send SOAP request")
